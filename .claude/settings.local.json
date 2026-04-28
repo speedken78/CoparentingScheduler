@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m pip install -q fastapi sqlalchemy pydantic pydantic-settings python-jose passlib anthropic pytest pytest-asyncio)",
+      "Bash(py -3 --version)",
+      "Bash(py --version)",
+      "PowerShell(wsl --status 2>&1)",
+      "PowerShell(wsl --list --verbose 2>&1)",
+      "PowerShell(Get-ChildItem \"$env:LOCALAPPDATA\\\\Microsoft\\\\WinGet\" -Recurse -Filter \"docker.exe\" -ErrorAction SilentlyContinue | Select-Object FullName | Select-Object -First 5)",
+      "Bash(wsl -d Ubuntu -u root -- bash -c \"cd /mnt/d/project/CoparentingScheduler/backend && docker compose exec -T api pytest tests/integration -v 2>&1\")",
+      "Bash(wsl -d Ubuntu -u root -- bash -c \"cd /mnt/d/project/CoparentingScheduler/backend && docker compose exec -T api pytest tests/integration/test_cases.py::test_create_case_success -v 2>&1\")",
+      "Bash(wsl -d Ubuntu -u root -- bash -c \"grep ANTHROPIC_API_KEY /mnt/d/project/CoparentingScheduler/backend/.env\")",
+      "Bash(wsl -d Ubuntu -u root -- bash -c \"cd /mnt/d/project/CoparentingScheduler/backend && docker compose exec -T api pytest tests/agent_evals -v -m eval 2>&1\")",
+      "PowerShell(Get-Command \"docker\")"
+    ]
+  }
+}

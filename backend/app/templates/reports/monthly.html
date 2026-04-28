@@ -1,0 +1,185 @@
+{% extends "reports/base.html" %}
+{% block content %}
+
+{# ── 封面 ── #}
+<div class="cover">
+  <div class="logo">共親職排程系統</div>
+  <h1>監護排程紀錄報告</h1>
+  <div class="subtitle">{{ report_type_label }}</div>
+  <table class="meta-table">
+    <tr>
+      <td class="label">案件名稱</td>
+      <td>{{ case_name }}</td>
+    </tr>
+    <tr>
+      <td class="label">法院案號</td>
+      <td>{{ court_case_no or "（未填）" }}</td>
+    </tr>
+    <tr>
+      <td class="label">紀錄期間</td>
+      <td>{{ period_start }} 至 {{ period_end }}</td>
+    </tr>
+    <tr>
+      <td class="label">報告產生時間</td>
+      <td>{{ generated_at }}</td>
+    </tr>
+    <tr>
+      <td class="label">產生者</td>
+      <td>{{ generated_by_name }}</td>
+    </tr>
+  </table>
+
+  <div class="integrity-box">
+    <strong>稽核完整性</strong><br>
+    最後稽核 ID：{{ last_audit_id }}<br>
+    稽核雜湊：{{ last_audit_hash }}<br>
+    {% if anchor_proof %}
+    錨定位置：{{ anchor_proof }}
+    {% else %}
+    錨定：尚未錨定（最近一次錨定時間：{{ last_anchor_at or "無" }}）
+    {% endif %}
+  </div>
+</div>
+
+{# ── 摘要統計 ── #}
+<h2>一、期間摘要</h2>
+<table>
+  <thead>
+    <tr>
+      <th>統計項目</th>
+      <th>我（{{ my_name }}）</th>
+      <th>對方（{{ other_name or "未加入" }}）</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>排定監護天數</td>
+      <td>{{ stats.my_scheduled_days }} 天</td>
+      <td>{{ stats.other_scheduled_days }} 天</td>
+    </tr>
+    <tr>
+      <td>實際完成次數</td>
+      <td>{{ stats.my_completed }}</td>
+      <td>{{ stats.other_completed }}</td>
+    </tr>
+    <tr>
+      <td>未出現次數（missed）</td>
+      <td>{{ stats.my_missed }}</td>
+      <td>{{ stats.other_missed }}</td>
+    </tr>
+    <tr>
+      <td>爭議次數</td>
+      <td>{{ stats.my_disputed }}</td>
+      <td>{{ stats.other_disputed }}</td>
+    </tr>
+  </tbody>
+</table>
+
+{# ── 監護規則 ── #}
+<h2>二、本期有效監護規則</h2>
+{% if rules %}
+<table>
+  <thead>
+    <tr>
+      <th>監護方</th>
+      <th>規則說明</th>
+      <th>時間</th>
+      <th>來源</th>
+      <th>生效期間</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for rule in rules %}
+    <tr>
+      <td>{{ rule.custodian_label }}</td>
+      <td>{{ rule.rrule_human }}</td>
+      <td>{{ rule.start_time }}–{{ rule.end_time }}</td>
+      <td>{{ rule.source_label }}</td>
+      <td>{{ rule.effective_from }}
+        {% if rule.effective_until %} 至 {{ rule.effective_until }}{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>本期無有效監護規則。</p>
+{% endif %}
+
+{# ── 實際接送紀錄 ── #}
+<div class="page-break"></div>
+<h2>三、實際接送紀錄</h2>
+{% if events %}
+<table>
+  <thead>
+    <tr>
+      <th>日期</th>
+      <th>時段</th>
+      <th>監護方</th>
+      <th>狀態</th>
+      <th>打卡時間</th>
+      <th>對方確認</th>
+      <th>備註</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for event in events %}
+    <tr>
+      <td>{{ event.date }}</td>
+      <td>{{ event.start_time }}–{{ event.end_time }}</td>
+      <td>{{ event.custodian_label }}</td>
+      <td>
+        <span class="badge badge-{{ event.status }}">
+          {{ event.status_label }}
+        </span>
+      </td>
+      <td>{{ event.handover_time or "—" }}</td>
+      <td>{{ "確認" if event.counterparty_confirmed else "—" }}</td>
+      <td>{{ event.notes or "" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>本期無接送紀錄。</p>
+{% endif %}
+
+{# ── 異動紀錄 ── #}
+<div class="page-break"></div>
+<h2>四、規則異動紀錄</h2>
+{% if audit_changes %}
+<table>
+  <thead>
+    <tr>
+      <th>時間</th>
+      <th>操作</th>
+      <th>操作者</th>
+      <th>來源</th>
+      <th>說明</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for log in audit_changes %}
+    <tr>
+      <td>{{ log.occurred_at }}</td>
+      <td>{{ log.action_label }}</td>
+      <td>{{ log.actor_label }}</td>
+      <td>{{ log.triggered_by_label }}</td>
+      <td>{{ log.summary }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>本期無規則異動。</p>
+{% endif %}
+
+{# ── 免責聲明 ── #}
+<div class="disclaimer">
+  <strong>免責聲明：</strong>
+  本報告由共親職排程系統自動產生，僅供參考及記錄用途，不構成法律意見。
+  稽核雜湊值代表本報告產生時的資料完整性，如需法院使用，建議由律師確認其證據效力。
+  系統技術支援：請洽應用程式管理員。
+</div>
+
+{% endblock %}
