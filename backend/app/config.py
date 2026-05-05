@@ -4,6 +4,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    # 環境
+    ENV: str = "development"
     # Superuser URL for alembic migrations only
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/coparenting"
     # app_user URL for API runtime (BYPASSRLS via app_role, no DDL)

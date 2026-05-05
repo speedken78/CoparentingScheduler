@@ -16,6 +16,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# app/main.py
+from fastapi import FastAPI, Depends
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.deps import get_db
+from app.config import settings
+
+app = FastAPI(title="CoParenting API")
+
+# 健康檢查 endpoints（加在這裡，router 之前）
+@app.get("/healthz")
+async def health_check():
+    return {"status": "ok", "env": settings.ENV}
+
+@app.get("/readyz")
+async def readiness_check(db: AsyncSession = Depends(get_db)):
+    """確認 DB 連線正常。"""
+    try:
+        await db.execute(text("SELECT 1"))
+        return {"status": "ready"}
+    except Exception as e:
+        from fastapi import HTTPException
+        raise HTTPException(503, detail=f"DB not ready: {e}")
+
+
 app.include_router(admin.router, prefix="/api/v1")
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
 app.include_router(cases.router, prefix="/api/v1/cases", tags=["cases"])

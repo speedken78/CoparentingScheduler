@@ -1,1 +1,17 @@
-backend/.env 
+﻿# Google OAuth secrets
+client_secret_*.json
+**/client_secret_*.json
+
+# Python cache
+**/__pycache__/
+*.pyc
+
+# Expo
+mobile/.expo/
+mobile/node_modules/
+
+# Environment
+.env
+.env.local
+backend/.env
+mobile/.env
