@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar, DateData } from 'react-native-calendars';
 import { useCaseStore } from '../store/case';
@@ -21,6 +21,7 @@ export const CalendarScreen = () => {
   const [events, setEvents] = useState<CustodyEvent[]>([]);
   const [selectedDate, setSelectedDate] = useState('');
   const [markedDates, setMarkedDates] = useState<Record<string, any>>({});
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     if (currentCase) loadMonth(currentMonth);
@@ -30,11 +31,14 @@ export const CalendarScreen = () => {
     if (!currentCase) return;
     const start = new Date(month.getFullYear(), month.getMonth(), 1);
     const end = new Date(month.getFullYear(), month.getMonth() + 1, 0);
+    setIsLoading(true);
     try {
       const { items } = await schedulesApi.listEvents(currentCase.id, start, end);
       setEvents(items);
       buildMarked(items);
-    } catch {}
+    } catch {} finally {
+      setIsLoading(false);
+    }
   };
 
   const buildMarked = (items: CustodyEvent[]) => {
@@ -86,9 +90,21 @@ export const CalendarScreen = () => {
         <Text style={styles.monthTitle}>
           {format(currentMonth, 'yyyy年 M月', { locale: zhTW })}
         </Text>
-        <TouchableOpacity onPress={() => setCurrentMonth(m => addMonths(m, 1))}>
-          <Text style={styles.arrow}>›</Text>
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity onPress={() => setCurrentMonth(m => addMonths(m, 1))}>
+            <Text style={styles.arrow}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => loadMonth(currentMonth)}
+            disabled={isLoading}
+            style={styles.refreshBtn}
+          >
+            {isLoading
+              ? <ActivityIndicator size="small" color={colors.text.inverse} />
+              : <Text style={styles.refreshIcon}>↻</Text>
+            }
+          </TouchableOpacity>
+        </View>
       </View>
 
       <Calendar
@@ -153,6 +169,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.brand.primary,
   },
   arrow: { fontSize: 24, color: colors.text.inverse, paddingHorizontal: spacing.md },
+  headerRight: { flexDirection: 'row', alignItems: 'center' },
+  refreshBtn: { paddingHorizontal: spacing.sm },
+  refreshIcon: { fontSize: 20, color: colors.text.inverse },
   monthTitle: { ...typography.h2, color: colors.text.inverse },
   legend: {
     flexDirection: 'row',

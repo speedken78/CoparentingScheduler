@@ -17,7 +17,7 @@ export const MessageBubble = ({ role, text, timestamp }: Props) => {
     <View style={[styles.wrapper, isUser ? styles.wrapperUser : styles.wrapperAi]}>
       {!isUser && <Text style={styles.aiLabel}>AI 助理</Text>}
       <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAi]}>
-        <Text style={[styles.text, isUser ? styles.textUser : styles.textAi]}>{text}</Text>
+        <Text selectable style={[styles.text, isUser ? styles.textUser : styles.textAi]}>{text}</Text>
       </View>
       <Text style={[styles.time, isUser ? styles.timeUser : styles.timeAi]}>
         {formatEventTime(timestamp)}
