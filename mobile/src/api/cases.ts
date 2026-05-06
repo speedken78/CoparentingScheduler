@@ -3,8 +3,8 @@ import { Case, Child, CreateCaseRequest } from './types';
 
 export const casesApi = {
   async list(): Promise<Case[]> {
-    const { data } = await apiClient.get<Case[]>('/cases/');
-    return data;
+    const { data } = await apiClient.get<{ items: Case[] }>('/cases/');
+    return data.items;
   },
 
   async create(body: CreateCaseRequest): Promise<Case> {
@@ -18,7 +18,7 @@ export const casesApi = {
   },
 
   async listChildren(caseId: string): Promise<Child[]> {
-    const { data } = await apiClient.get<Child[]>(`/cases/${caseId}/children/`);
-    return data;
+    const { data } = await apiClient.get<{ items: Child[] }>(`/cases/${caseId}/children/`);
+    return data.items;
   },
 };

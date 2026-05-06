@@ -1,6 +1,7 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HomeScreen } from '../screens/HomeScreen';
 import { ChatScreen } from '../screens/ChatScreen';
 import { CalendarScreen } from '../screens/CalendarScreen';
@@ -16,15 +17,18 @@ const tabIcon = (icon: string, focused: boolean) => (
   </Text>
 );
 
-export const MainTabNavigator = () => (
+export const MainTabNavigator = () => {
+  const insets = useSafeAreaInsets();
+
+  return (
   <Tab.Navigator
     screenOptions={{
       headerShown: false,
       tabBarActiveTintColor: colors.brand.primary,
       tabBarInactiveTintColor: colors.text.tertiary,
       tabBarStyle: {
-        height: 60,
-        paddingBottom: 8,
+        height: 60 + insets.bottom,
+        paddingBottom: insets.bottom + 8,
         paddingTop: 8,
         borderTopWidth: 0.5,
         borderTopColor: colors.border.light,
@@ -53,4 +57,5 @@ export const MainTabNavigator = () => (
       options={{ tabBarLabel: '紀錄', tabBarIcon: ({ focused }) => tabIcon('⊞', focused) }}
     />
   </Tab.Navigator>
-);
+  );
+};

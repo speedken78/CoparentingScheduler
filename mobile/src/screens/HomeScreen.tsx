@@ -39,7 +39,7 @@ export const HomeScreen = () => {
       if (list.length > 0 && !currentCase) {
         setCurrentCase(list[0]);
       } else if (list.length === 0) {
-        navigation.replace('Onboarding');
+        navigation.getParent()?.navigate('Onboarding');
       }
     } catch {
       setLoadError(true);
