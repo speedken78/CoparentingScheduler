@@ -75,6 +75,23 @@ async def list_events(
     }
 
 
+@router.delete("/events/{event_id}")
+async def delete_event(
+    case_id: UUID,
+    event_id: UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    m = await _require_member(case_id, current_user.id, db)
+    event = await EventRepository(db).soft_delete(event_id, case_id)
+    if not event:
+        raise HTTPException(404, detail="事件不存在")
+    if str(event.custodian_id) != str(current_user.id) and m.relation not in ("parent_a", "parent_b"):
+        raise HTTPException(403, detail="無權刪除此事件")
+    await db.commit()
+    return {"status": "deleted"}
+
+
 @router.get("/revocation-proposals")
 async def list_revocation_proposals(
     case_id: UUID,

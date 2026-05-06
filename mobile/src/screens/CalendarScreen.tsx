@@ -81,6 +81,15 @@ export const CalendarScreen = () => {
 
   const eventsOnDate = events.filter(e => e.starts_at.startsWith(selectedDate));
 
+  const handleDeleteEvent = async (eventId: string) => {
+    if (!currentCase) return;
+    try {
+      await schedulesApi.deleteEvent(currentCase.id, eventId);
+      await loadMonth(currentMonth);
+      setSelectedDate(selectedDate);
+    } catch {}
+  };
+
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
@@ -134,7 +143,7 @@ export const CalendarScreen = () => {
       {selectedDate ? (
         <View style={styles.eventSection}>
           <Text style={styles.eventSectionTitle}>{selectedDate} 的排程</Text>
-          <EventList events={eventsOnDate} currentUserId={user?.id ?? ''} />
+          <EventList events={eventsOnDate} currentUserId={user?.id ?? ''} onDeleteEvent={handleDeleteEvent} />
         </View>
       ) : (
         <View style={styles.eventSection}>

@@ -69,6 +69,14 @@ class EventRepository:
         )
         return list(result.scalars().all())
 
+    async def soft_delete(self, event_id: UUID, case_id: UUID) -> CustodyEvent | None:
+        event = await self.db.get(CustodyEvent, event_id)
+        if not event or str(event.case_id) != str(case_id) or event.deleted_at:
+            return None
+        event.deleted_at = datetime.now(dt_tz.utc)
+        await self.db.flush()
+        return event
+
     async def delete_scheduled_by_rule_after(
         self,
         rule_id: UUID,

@@ -28,4 +28,8 @@ export const schedulesApi = {
     );
     return data;
   },
+
+  async deleteEvent(caseId: string, eventId: string): Promise<void> {
+    await apiClient.delete(`/cases/${caseId}/events/${eventId}/`);
+  },
 };
