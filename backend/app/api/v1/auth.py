@@ -70,6 +70,9 @@ async def google_callback(code: str, state: str = "", db: AsyncSession = Depends
     from google.oauth2 import id_token
     from google.auth.transport import requests as google_requests
 
+    import os
+    os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
+
     flow = _build_flow()
     flow.redirect_uri = settings.GOOGLE_OAUTH_REDIRECT_URI
     try:
