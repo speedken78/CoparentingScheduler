@@ -9,7 +9,7 @@ export const schedulesApi = {
     end: Date,
   ): Promise<{ items: CustodyEvent[] }> {
     const { data } = await apiClient.get<{ items: CustodyEvent[] }>(
-      `/cases/${caseId}/events`,
+      `/cases/${caseId}/events/`,
       { params: { start: toApiDate(start), end: toApiDate(end) } },
     );
     return data;
@@ -17,14 +17,14 @@ export const schedulesApi = {
 
   async listRules(caseId: string): Promise<{ items: CustodyRule[] }> {
     const { data } = await apiClient.get<{ items: CustodyRule[] }>(
-      `/cases/${caseId}/rules`,
+      `/cases/${caseId}/rules/`,
     );
     return data;
   },
 
   async getEvent(caseId: string, eventId: string): Promise<CustodyEvent> {
     const { data } = await apiClient.get<CustodyEvent>(
-      `/cases/${caseId}/events/${eventId}`,
+      `/cases/${caseId}/events/${eventId}/`,
     );
     return data;
   },

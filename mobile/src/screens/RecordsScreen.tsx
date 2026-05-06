@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, ScrollView, StyleSheet, Alert } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useCaseStore } from '../store/case';
 import { useAuthStore } from '../store/auth';
@@ -16,6 +17,7 @@ import { format } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
 
 export const RecordsScreen = () => {
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { currentCase } = useCaseStore();
   const { user } = useAuthStore();
@@ -64,7 +66,7 @@ export const RecordsScreen = () => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.md }]}>
         <Text style={styles.headerTitle}>接送紀錄</Text>
         <Text style={styles.headerSub}>{monthLabel} · 具法律效力</Text>
       </View>
@@ -110,7 +112,6 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.brand.primary,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xl,
     paddingBottom: spacing.lg,
   },
   headerTitle: { ...typography.h2, color: colors.text.inverse },

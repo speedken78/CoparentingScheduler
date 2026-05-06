@@ -13,12 +13,12 @@ export const casesApi = {
   },
 
   async get(caseId: string): Promise<Case> {
-    const { data } = await apiClient.get<Case>(`/cases/${caseId}`);
+    const { data } = await apiClient.get<Case>(`/cases/${caseId}/`);
     return data;
   },
 
   async listChildren(caseId: string): Promise<Child[]> {
-    const { data } = await apiClient.get<Child[]>(`/cases/${caseId}/children`);
+    const { data } = await apiClient.get<Child[]>(`/cases/${caseId}/children/`);
     return data;
   },
 };

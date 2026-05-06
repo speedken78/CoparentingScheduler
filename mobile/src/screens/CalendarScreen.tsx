@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Calendar, DateData } from 'react-native-calendars';
 import { useCaseStore } from '../store/case';
 import { useAuthStore } from '../store/auth';
@@ -13,6 +14,7 @@ import { format, addMonths, subMonths } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
 
 export const CalendarScreen = () => {
+  const insets = useSafeAreaInsets();
   const { currentCase } = useCaseStore();
   const { user } = useAuthStore();
   const [currentMonth, setCurrentMonth] = useState(new Date());
@@ -77,7 +79,7 @@ export const CalendarScreen = () => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.sm }]}>
         <TouchableOpacity onPress={() => setCurrentMonth(m => subMonths(m, 1))}>
           <Text style={styles.arrow}>‹</Text>
         </TouchableOpacity>
@@ -147,7 +149,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xl,
     paddingBottom: spacing.sm,
     backgroundColor: colors.brand.primary,
   },

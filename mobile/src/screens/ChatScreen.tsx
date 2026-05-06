@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { View, Text, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCaseStore } from '../store/case';
 import { agentApi } from '../api/agent';
 import { MessageBubble } from '../components/chat/MessageBubble';
@@ -27,6 +28,7 @@ const WELCOME_MSG: ChatMessage = {
 };
 
 export const ChatScreen = () => {
+  const insets = useSafeAreaInsets();
   const { currentCase } = useCaseStore();
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MSG]);
   const [sessionId, setSessionId] = useState<string | undefined>(undefined);
@@ -93,7 +95,7 @@ export const ChatScreen = () => {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.md }]}>
         <Text style={styles.headerTitle}>AI 助理</Text>
         <Text style={styles.headerSub}>
           {currentCase ? currentCase.case_name : '請先建立案件'}
@@ -129,7 +131,6 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.brand.primary,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xl,
     paddingBottom: spacing.lg,
   },
   headerTitle: { ...typography.h2, color: colors.text.inverse },

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useCaseStore } from '../store/case';
 import { useAuthStore } from '../store/auth';
@@ -16,10 +17,11 @@ import { formatMonthYear } from '../utils/formatDate';
 
 export const HomeScreen = () => {
   const navigation = useNavigation<any>();
-  const { currentCase, cases, setCurrentCase, setCases } = useCaseStore();
+  const insets = useSafeAreaInsets();
+  const { currentCase, setCurrentCase, setCases } = useCaseStore();
   const { user } = useAuthStore();
   const [events, setEvents] = useState<CustodyEvent[]>([]);
-  const [loadingEvents, setLoadingEvents] = useState(false);
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     loadCases();
@@ -30,6 +32,7 @@ export const HomeScreen = () => {
   }, [currentCase]);
 
   const loadCases = async () => {
+    setLoadError(false);
     try {
       const list = await casesApi.list();
       setCases(list);
@@ -38,12 +41,13 @@ export const HomeScreen = () => {
       } else if (list.length === 0) {
         navigation.replace('Onboarding');
       }
-    } catch {}
+    } catch {
+      setLoadError(true);
+    }
   };
 
   const loadEvents = async () => {
     if (!currentCase) return;
-    setLoadingEvents(true);
     try {
       const now = new Date();
       const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -51,13 +55,15 @@ export const HomeScreen = () => {
       end.setDate(end.getDate() + 14);
       const { items } = await schedulesApi.listEvents(currentCase.id, start, end);
       setEvents(items);
-    } catch {} finally {
-      setLoadingEvents(false);
-    }
+    } catch {}
   };
 
   const myEvents = events.filter(e => e.custodian_id === user?.id);
   const upcomingEvents = events.slice(0, 5);
+
+  if (loadError) {
+    return <EmptyState icon="⚠" title="載入失敗" subtitle="請檢查網路連線後重新開啟 App" />;
+  }
 
   if (!currentCase) {
     return <EmptyState title="載入中…" />;
@@ -65,7 +71,7 @@ export const HomeScreen = () => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + spacing.md }]}>
         <Text style={styles.headerTitle}>{currentCase.case_name}</Text>
         <Text style={styles.headerSubtitle}>
           {currentCase.custody_type === 'joint' ? '共同監護' : '單獨監護'} · {formatMonthYear(new Date())}
@@ -120,7 +126,6 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: colors.brand.primary,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xl,
     paddingBottom: spacing.lg,
   },
   headerTitle: { ...typography.h2, color: colors.text.inverse, marginBottom: 2 },
