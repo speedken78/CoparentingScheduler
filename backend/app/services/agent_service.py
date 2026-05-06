@@ -3,15 +3,8 @@ import json
 from uuid import UUID, uuid4
 from datetime import datetime, timezone
 
-import vertexai
-from vertexai.generative_models import (
-    Content,
-    FunctionDeclaration,
-    GenerationConfig,
-    GenerativeModel,
-    Part,
-    Tool,
-)
+from google import genai
+from google.genai import types as gtypes
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -25,46 +18,36 @@ from app.utils.errors import AgentLoopError, UnknownToolError
 
 MAX_ITERATIONS = 6
 
-# 初始化 Vertex AI（Cloud Run 上使用 ADC；本地需 gcloud auth application-default login）
-_init_kwargs: dict = {"location": settings.VERTEX_AI_LOCATION}
-if settings.VERTEX_AI_PROJECT:
-    _init_kwargs["project"] = settings.VERTEX_AI_PROJECT
-vertexai.init(**_init_kwargs)
+# 初始化 google-genai client（Cloud Run 上使用 ADC；本地需 gcloud auth application-default login）
+_client = genai.Client(
+    vertexai=True,
+    project=settings.VERTEX_AI_PROJECT or None,
+    location=settings.VERTEX_AI_LOCATION,
+)
 
-# 快取編譯好的 Tool 物件（Tool definitions 不變）
-_GEMINI_TOOLS: list[Tool] | None = None
+# 快取編譯好的 Tool 物件
+_GENAI_TOOLS: list[gtypes.Tool] | None = None
 
 
-def _get_gemini_tools() -> list[Tool]:
-    global _GEMINI_TOOLS
-    if _GEMINI_TOOLS is None:
+def _get_genai_tools() -> list[gtypes.Tool]:
+    global _GENAI_TOOLS
+    if _GENAI_TOOLS is None:
         declarations = [
-            FunctionDeclaration(
+            gtypes.FunctionDeclaration(
                 name=t["name"],
                 description=t["description"],
                 parameters=t["input_schema"],
             )
             for t in TOOLS
         ]
-        _GEMINI_TOOLS = [Tool(function_declarations=declarations)]
-    return _GEMINI_TOOLS
+        _GENAI_TOOLS = [gtypes.Tool(function_declarations=declarations)]
+    return _GENAI_TOOLS
 
 
-def _to_gemini_contents(messages: list[dict]) -> list[Content]:
+def _to_genai_contents(messages: list[dict]) -> list[gtypes.Content]:
     """
-    把儲存在 DB 裡的 Anthropic 相容訊息格式轉成 Gemini Content 物件。
-
-    Anthropic format：
-      user: {"role": "user", "content": "text" | [blocks]}
-      assistant: {"role": "assistant", "content": [text_block | tool_use_block]}
-      tool results: {"role": "user", "content": [tool_result_block]}
-
-    Gemini format：
-      user: Content(role="user", parts=[Part.from_text(...)])
-      model: Content(role="model", parts=[Part.from_text(...), Part(function_call=...)])
-      tool results: Content(role="user", parts=[Part.from_function_response(...)])
+    把儲存在 DB 裡的訊息格式轉成 google-genai Content 物件。
     """
-    # 第一遍：建立 tool_use_id → tool_name 對照表（tool_result 轉換時需要名稱）
     id_to_name: dict[str, str] = {}
     for msg in messages:
         if msg.get("role") == "assistant":
@@ -72,28 +55,26 @@ def _to_gemini_contents(messages: list[dict]) -> list[Content]:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     id_to_name[block.get("id", "")] = block.get("name", "")
 
-    contents: list[Content] = []
+    contents: list[gtypes.Content] = []
     for msg in messages:
         role = msg.get("role", "user")
         raw = msg.get("content", "")
         g_role = "model" if role == "assistant" else "user"
 
-        # 純文字訊息
         if isinstance(raw, str):
             if raw:
-                contents.append(Content(role=g_role, parts=[Part.from_text(raw)]))
+                contents.append(gtypes.Content(role=g_role, parts=[gtypes.Part(text=raw)]))
             continue
 
         if not isinstance(raw, list) or not raw:
             continue
 
-        # 判斷是否為 tool_result 訊息
         is_tool_results = role == "user" and all(
             isinstance(b, dict) and b.get("type") == "tool_result" for b in raw
         )
 
         if is_tool_results:
-            parts: list[Part] = []
+            parts: list[gtypes.Part] = []
             for block in raw:
                 if not isinstance(block, dict):
                     continue
@@ -104,33 +85,29 @@ def _to_gemini_contents(messages: list[dict]) -> list[Content]:
                     resp_dict = json.loads(raw_c) if isinstance(raw_c, str) else raw_c
                 except Exception:
                     resp_dict = {"result": str(raw_c)}
-                parts.append(Part.from_function_response(name=name, response=resp_dict))
+                parts.append(gtypes.Part(
+                    function_response=gtypes.FunctionResponse(name=name, response=resp_dict)
+                ))
             if parts:
-                contents.append(Content(role="user", parts=parts))
+                contents.append(gtypes.Content(role="user", parts=parts))
             continue
 
-        # 一般 content block 列表（text / tool_use）
         parts = []
         for block in raw:
             if not isinstance(block, dict):
                 continue
             btype = block.get("type")
             if btype == "text" and block.get("text"):
-                parts.append(Part.from_text(block["text"]))
+                parts.append(gtypes.Part(text=block["text"]))
             elif btype == "tool_use":
-                try:
-                    parts.append(Part.from_dict({
-                        "function_call": {
-                            "name": block.get("name", ""),
-                            "args": block.get("input", {}),
-                        }
-                    }))
-                except Exception:
-                    parts.append(Part.from_text(
-                        f"[tool call: {block.get('name')} {json.dumps(block.get('input', {}))}]"
-                    ))
+                parts.append(gtypes.Part(
+                    function_call=gtypes.FunctionCall(
+                        name=block.get("name", ""),
+                        args=block.get("input", {}),
+                    )
+                ))
         if parts:
-            contents.append(Content(role=g_role, parts=parts))
+            contents.append(gtypes.Content(role=g_role, parts=parts))
 
     return contents
 
@@ -191,17 +168,12 @@ async def handle_message(
     user=None,
 ) -> dict:
     async with db.begin_nested():
-        # 1. 取得或建立 session
         sid = await get_or_create_session(case_id, user_id, session_id, db)
-
-        # 2. 載入 context（歷史訊息 + 現有規則）
         ctx = await load_context(sid, case_id, user_id, db)
 
-        # 3. 新增使用者訊息
         ctx.append_user_message(user_text)
         await persist_message(db, sid, "user", user_text)
 
-        # 4. Audit log：使用者輸入
         await audit_log(
             db,
             case_id=case_id,
@@ -216,40 +188,39 @@ async def handle_message(
             user_agent=user_agent,
         )
 
-        # 5. 建立 Gemini model（每次請求帶入最新 system prompt）
-        model = GenerativeModel(
-            settings.VERTEX_AI_MODEL,
-            system_instruction=build_system_prompt(
-                today_date=ctx.today_label(),
-                case_timezone=ctx.case_timezone,
-                active_rules=ctx.active_rules,
-            ),
+        system_prompt = build_system_prompt(
+            today_date=ctx.today_label(),
+            case_timezone=ctx.case_timezone,
+            active_rules=ctx.active_rules,
         )
-        gen_config = GenerationConfig(temperature=0.0, max_output_tokens=2048)
-        gemini_tools = _get_gemini_tools()
+        genai_tools = _get_genai_tools()
+        gen_config = gtypes.GenerateContentConfig(
+            system_instruction=system_prompt,
+            tools=genai_tools,
+            temperature=0.0,
+            max_output_tokens=2048,
+        )
 
         actions_taken: list[dict] = []
         clarification_payload: dict | None = None
         reply = "（已完成）"
 
-        # 6. 狀態機主迴圈
         for iteration in range(MAX_ITERATIONS):
-            contents = _to_gemini_contents(ctx.truncated_messages())
-            resp = await model.generate_content_async(
+            contents = _to_genai_contents(ctx.truncated_messages())
+            resp = await _client.aio.models.generate_content(
+                model=settings.VERTEX_AI_MODEL,
                 contents=contents,
-                tools=gemini_tools,
-                generation_config=gen_config,
+                config=gen_config,
             )
 
             candidate = resp.candidates[0]
             response_parts = candidate.content.parts
 
-            # 把 assistant 訊息轉成儲存格式（與原 Anthropic 格式相容）
             assistant_blocks: list[dict] = []
             for part in response_parts:
-                if hasattr(part, "text") and part.text:
+                if part.text:
                     assistant_blocks.append({"type": "text", "text": part.text})
-                elif hasattr(part, "function_call") and part.function_call:
+                elif part.function_call is not None:
                     fc = part.function_call
                     assistant_blocks.append({
                         "type": "tool_use",
@@ -267,21 +238,14 @@ async def handle_message(
             )
             ctx.append_assistant_response(assistant_blocks)
 
-            # 找出所有 function_call parts
-            fc_parts = [
-                p for p in response_parts
-                if hasattr(p, "function_call") and p.function_call
-            ]
+            fc_parts = [p for p in response_parts if p.function_call is not None]
 
             if not fc_parts:
-                # 沒有 function call → 結束
                 reply = "\n".join(
-                    p.text for p in response_parts
-                    if hasattr(p, "text") and p.text
+                    p.text for p in response_parts if p.text
                 ) or "（已完成）"
                 break
 
-            # 有 function call → 逐一 dispatch
             tool_results: list[dict] = []
             for part in fc_parts:
                 fc = part.function_call
@@ -337,7 +301,7 @@ async def handle_message(
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": tool_id,
-                    "tool_name": tool_name,   # Gemini 轉換時需要此欄位
+                    "tool_name": tool_name,
                     "content": json.dumps(result, ensure_ascii=False),
                 })
 
@@ -347,12 +311,10 @@ async def handle_message(
         else:
             raise AgentLoopError("Exceeded max iterations without finishing")
 
-        # 7. 更新 session last_active_at
         session = await db.get(AgentSession, sid)
         if session:
             session.last_active_at = datetime.now(timezone.utc)
 
-    # GCal 同步在 savepoint release 後觸發
     for action in actions_taken:
         if action["tool"] in ("create_recurring_custody_rule", "create_one_time_event"):
             if "id" in action["result"]:
