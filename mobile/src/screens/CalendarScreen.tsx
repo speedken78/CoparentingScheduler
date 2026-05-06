@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/auth';
 import { schedulesApi } from '../api/schedules';
 import { CustodyEvent } from '../api/types';
 import { EventList } from '../components/calendar/EventList';
+import { AddEventModal } from '../components/calendar/AddEventModal';
 import { colors } from '../theme/colors';
 import { spacing } from '../theme/spacing';
 import { typography } from '../theme/typography';
@@ -22,6 +23,7 @@ export const CalendarScreen = () => {
   const [selectedDate, setSelectedDate] = useState('');
   const [markedDates, setMarkedDates] = useState<Record<string, any>>({});
   const [isLoading, setIsLoading] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
 
   useEffect(() => {
     if (currentCase) loadMonth(currentMonth);
@@ -86,8 +88,13 @@ export const CalendarScreen = () => {
     try {
       await schedulesApi.deleteEvent(currentCase.id, eventId);
       await loadMonth(currentMonth);
-      setSelectedDate(selectedDate);
     } catch {}
+  };
+
+  const handleCreateEvent = async (startsAt: string, endsAt: string, notes: string) => {
+    if (!currentCase) return;
+    await schedulesApi.createEvent(currentCase.id, startsAt, endsAt, notes);
+    await loadMonth(currentMonth);
   };
 
   return (
@@ -113,6 +120,14 @@ export const CalendarScreen = () => {
               : <Text style={styles.refreshIcon}>↻</Text>
             }
           </TouchableOpacity>
+          {selectedDate ? (
+            <TouchableOpacity
+              onPress={() => setShowAddModal(true)}
+              style={styles.refreshBtn}
+            >
+              <Text style={styles.refreshIcon}>＋</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       </View>
 
@@ -150,6 +165,12 @@ export const CalendarScreen = () => {
           <Text style={styles.eventSectionTitle}>點選日期查看排程</Text>
         </View>
       )}
+      <AddEventModal
+        visible={showAddModal}
+        date={selectedDate}
+        onClose={() => setShowAddModal(false)}
+        onSave={handleCreateEvent}
+      />
     </View>
   );
 };

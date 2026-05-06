@@ -32,4 +32,13 @@ export const schedulesApi = {
   async deleteEvent(caseId: string, eventId: string): Promise<void> {
     await apiClient.delete(`/cases/${caseId}/events/${eventId}/`);
   },
+
+  async createEvent(
+    caseId: string,
+    startsAt: string,
+    endsAt: string,
+    notes: string,
+  ): Promise<void> {
+    await apiClient.post(`/cases/${caseId}/events/`, { starts_at: startsAt, ends_at: endsAt, notes });
+  },
 };

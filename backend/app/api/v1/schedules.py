@@ -75,6 +75,54 @@ async def list_events(
     }
 
 
+class CreateEventRequest(BaseModel):
+    starts_at: str   # ISO datetime string, e.g. "2026-06-07T09:00:00+08:00"
+    ends_at: str
+    notes: str = ""
+
+
+@router.post("/events")
+async def create_event(
+    case_id: UUID,
+    body: CreateEventRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    m = await _require_member(case_id, current_user.id, db)
+
+    custodian_id = current_user.id
+
+    try:
+        starts_at = datetime.fromisoformat(body.starts_at)
+        ends_at = datetime.fromisoformat(body.ends_at)
+    except ValueError as e:
+        raise HTTPException(400, detail=f"時間格式錯誤：{e}")
+
+    if ends_at <= starts_at:
+        raise HTTPException(400, detail="結束時間須晚於開始時間")
+
+    from uuid import uuid4
+    from app.models.custody_event import CustodyEvent as CustodyEventModel
+    event = CustodyEventModel(
+        id=uuid4(),
+        case_id=case_id,
+        custodian_id=custodian_id,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        status="scheduled",
+        notes=body.notes or None,
+        created_by=current_user.id,
+    )
+    db.add(event)
+    await db.commit()
+    await db.refresh(event)
+    return {
+        "id": str(event.id),
+        "starts_at": event.starts_at.isoformat(),
+        "ends_at": event.ends_at.isoformat(),
+    }
+
+
 @router.delete("/events/{event_id}")
 async def delete_event(
     case_id: UUID,
