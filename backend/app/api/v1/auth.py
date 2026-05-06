@@ -1,3 +1,5 @@
+import re
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 import jwt
@@ -13,6 +15,13 @@ from app.utils.jwt_utils import create_access_token, create_refresh_token, decod
 from app.utils.kms import encrypt as encrypt_with_kms
 
 router = APIRouter()
+
+
+def _strip_pkce(auth_url: str) -> str:
+    """移除 PKCE 參數：server-side confidential client 不需要，但新版 library 會自動加上。"""
+    auth_url = re.sub(r'&code_challenge=[^&]+', '', auth_url)
+    auth_url = re.sub(r'&code_challenge_method=[^&]+', '', auth_url)
+    return auth_url
 
 
 def _build_flow():
@@ -45,7 +54,7 @@ async def google_login():
         prompt="consent",
         include_granted_scopes="true",
     )
-    return {"auth_url": auth_url}
+    return {"auth_url": _strip_pkce(auth_url)}
 
 
 @router.get("/google/callback")
@@ -158,7 +167,7 @@ async def google_login_mobile():
         f"state={urllib.parse.quote(state)}",
         f"state={urllib.parse.quote(mobile_state)}",
     )
-    return {"auth_url": auth_url_with_state}
+    return {"auth_url": _strip_pkce(auth_url_with_state)}
 
 
 @router.post("/refresh", response_model=AccessTokenResponse)
