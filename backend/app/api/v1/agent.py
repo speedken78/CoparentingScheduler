@@ -9,7 +9,7 @@ from app.models.user import User
 from app.services.agent_service import handle_message
 from app.utils.errors import AgentLoopError
 
-router = APIRouter(prefix="/agent", tags=["agent"])
+router = APIRouter(tags=["agent"])
 
 
 class MessageRequest(BaseModel):
