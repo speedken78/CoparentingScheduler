@@ -2,7 +2,7 @@
 Agent Eval（寫入驗證）：驗證 LLM 解析後真的寫入 DB。
 執行方式：
     docker compose exec -T api pytest tests/agent_evals/test_scheduler_writes.py -v -m eval
-    （需要有效的 ANTHROPIC_API_KEY）
+    （需要 Vertex AI 憑證：Cloud Run ADC 或本地 gcloud auth application-default login）
 """
 import pytest
 from datetime import datetime, timezone, timedelta

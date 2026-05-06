@@ -222,11 +222,3 @@ TOOLS: list[dict] = [
 
 # Tool 名稱集合，用於 dispatcher 的快速驗證
 KNOWN_TOOL_NAMES: set[str] = {t["name"] for t in TOOLS}
-
-
-# 加 cache_control（tool definitions 很大，值得快取）
-def get_tools_with_cache() -> list[dict]:
-    """回傳最後一個 tool 加上 cache_control 的版本。"""
-    tools = [t.copy() for t in TOOLS]
-    tools[-1] = {**tools[-1], "cache_control": {"type": "ephemeral"}}
-    return tools
