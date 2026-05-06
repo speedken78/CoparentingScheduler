@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import get_db
 from app.config import settings
 
-app = FastAPI(title="CoParenting API")
+app = FastAPI(title="CoParenting API", redirect_slashes=False)
 
 # 健康檢查 endpoints（加在這裡，router 之前）
 @app.get("/healthz")
