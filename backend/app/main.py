@@ -23,7 +23,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.deps import get_db
 from app.config import settings
 
-app = FastAPI(title="CoParenting API", redirect_slashes=False)
+app = FastAPI(title="CoParenting API")
+
+# Cloud Run 在 HTTPS 前端後方，需要讀取 X-Forwarded-Proto 才能產生正確的 https redirect
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # 健康檢查 endpoints（加在這裡，router 之前）
 @app.get("/healthz")
