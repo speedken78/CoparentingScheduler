@@ -93,7 +93,7 @@ export const ChatScreen = () => {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <View style={[styles.header, { paddingTop: insets.top + spacing.md }]}>
         <Text style={styles.headerTitle}>AI 助理</Text>

@@ -1,6 +1,6 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Text } from 'react-native';
+import { Platform, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { HomeScreen } from '../screens/HomeScreen';
 import { ChatScreen } from '../screens/ChatScreen';
@@ -34,6 +34,7 @@ export const MainTabNavigator = () => {
         borderTopColor: colors.border.light,
       },
       tabBarLabelStyle: { fontSize: 10 },
+      tabBarHideOnKeyboard: Platform.OS === 'android',
     }}
   >
     <Tab.Screen
