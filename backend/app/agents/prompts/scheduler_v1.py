@@ -161,21 +161,7 @@ def build_system_prompt(
     today_date: str,
     case_timezone: str,
     active_rules: list[dict],
-) -> list[dict]:
-    """
-    回傳 Anthropic API 的 system 參數格式（list of content blocks）。
-    靜態部分加 cache_control，動態部分不加（每次不同，快取無效）。
-    """
+) -> str:
+    """回傳給 Gemini system_instruction 的純文字 system prompt。"""
     dynamic = build_dynamic_context(today_date, case_timezone, active_rules)
-    return [
-        {
-            "type": "text",
-            "text": SCHEDULER_SYSTEM_PROMPT_STATIC,
-            "cache_control": {"type": "ephemeral"},   # 快取靜態部分，省成本
-        },
-        {
-            "type": "text",
-            "text": dynamic,
-            # 動態部分不加 cache_control
-        },
-    ]
+    return SCHEDULER_SYSTEM_PROMPT_STATIC + dynamic

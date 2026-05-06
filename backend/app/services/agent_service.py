@@ -2,12 +2,21 @@
 import json
 from uuid import UUID, uuid4
 from datetime import datetime, timezone
-from anthropic import AsyncAnthropic
+
+import vertexai
+from vertexai.generative_models import (
+    Content,
+    FunctionDeclaration,
+    GenerationConfig,
+    GenerativeModel,
+    Part,
+    Tool,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.agents.context import AgentContext, load_context
-from app.agents.tools.definitions import get_tools_with_cache
+from app.agents.tools.definitions import TOOLS
 from app.agents.prompts.scheduler_v1 import build_system_prompt, PROMPT_VERSION
 from app.agents.dispatcher import dispatch_tool
 from app.models.agent_session import AgentSession, AgentMessage
@@ -16,7 +25,114 @@ from app.utils.errors import AgentLoopError, UnknownToolError
 
 MAX_ITERATIONS = 6
 
-client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+# 初始化 Vertex AI（Cloud Run 上使用 ADC；本地需 gcloud auth application-default login）
+_init_kwargs: dict = {"location": settings.VERTEX_AI_LOCATION}
+if settings.VERTEX_AI_PROJECT:
+    _init_kwargs["project"] = settings.VERTEX_AI_PROJECT
+vertexai.init(**_init_kwargs)
+
+# 快取編譯好的 Tool 物件（Tool definitions 不變）
+_GEMINI_TOOLS: list[Tool] | None = None
+
+
+def _get_gemini_tools() -> list[Tool]:
+    global _GEMINI_TOOLS
+    if _GEMINI_TOOLS is None:
+        declarations = [
+            FunctionDeclaration(
+                name=t["name"],
+                description=t["description"],
+                parameters=t["input_schema"],
+            )
+            for t in TOOLS
+        ]
+        _GEMINI_TOOLS = [Tool(function_declarations=declarations)]
+    return _GEMINI_TOOLS
+
+
+def _to_gemini_contents(messages: list[dict]) -> list[Content]:
+    """
+    把儲存在 DB 裡的 Anthropic 相容訊息格式轉成 Gemini Content 物件。
+
+    Anthropic format：
+      user: {"role": "user", "content": "text" | [blocks]}
+      assistant: {"role": "assistant", "content": [text_block | tool_use_block]}
+      tool results: {"role": "user", "content": [tool_result_block]}
+
+    Gemini format：
+      user: Content(role="user", parts=[Part.from_text(...)])
+      model: Content(role="model", parts=[Part.from_text(...), Part(function_call=...)])
+      tool results: Content(role="user", parts=[Part.from_function_response(...)])
+    """
+    # 第一遍：建立 tool_use_id → tool_name 對照表（tool_result 轉換時需要名稱）
+    id_to_name: dict[str, str] = {}
+    for msg in messages:
+        if msg.get("role") == "assistant":
+            for block in (msg.get("content") or []):
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    id_to_name[block.get("id", "")] = block.get("name", "")
+
+    contents: list[Content] = []
+    for msg in messages:
+        role = msg.get("role", "user")
+        raw = msg.get("content", "")
+        g_role = "model" if role == "assistant" else "user"
+
+        # 純文字訊息
+        if isinstance(raw, str):
+            if raw:
+                contents.append(Content(role=g_role, parts=[Part.from_text(raw)]))
+            continue
+
+        if not isinstance(raw, list) or not raw:
+            continue
+
+        # 判斷是否為 tool_result 訊息
+        is_tool_results = role == "user" and all(
+            isinstance(b, dict) and b.get("type") == "tool_result" for b in raw
+        )
+
+        if is_tool_results:
+            parts: list[Part] = []
+            for block in raw:
+                if not isinstance(block, dict):
+                    continue
+                uid = block.get("tool_use_id", "")
+                name = block.get("tool_name") or id_to_name.get(uid) or "tool"
+                raw_c = block.get("content", "{}")
+                try:
+                    resp_dict = json.loads(raw_c) if isinstance(raw_c, str) else raw_c
+                except Exception:
+                    resp_dict = {"result": str(raw_c)}
+                parts.append(Part.from_function_response(name=name, response=resp_dict))
+            if parts:
+                contents.append(Content(role="user", parts=parts))
+            continue
+
+        # 一般 content block 列表（text / tool_use）
+        parts = []
+        for block in raw:
+            if not isinstance(block, dict):
+                continue
+            btype = block.get("type")
+            if btype == "text" and block.get("text"):
+                parts.append(Part.from_text(block["text"]))
+            elif btype == "tool_use":
+                try:
+                    parts.append(Part.from_dict({
+                        "function_call": {
+                            "name": block.get("name", ""),
+                            "args": block.get("input", {}),
+                        }
+                    }))
+                except Exception:
+                    parts.append(Part.from_text(
+                        f"[tool call: {block.get('name')} {json.dumps(block.get('input', {}))}]"
+                    ))
+        if parts:
+            contents.append(Content(role=g_role, parts=parts))
+
+    return contents
 
 
 async def get_or_create_session(
@@ -25,21 +141,12 @@ async def get_or_create_session(
     session_id: UUID | None,
     db: AsyncSession,
 ) -> UUID:
-    """
-    若 session_id 為 None，建立新 session 並回傳新 id。
-    若有 session_id，驗證它屬於此 user/case，回傳原 id。
-    """
     if session_id is None:
-        new_session = AgentSession(
-            id=uuid4(),
-            case_id=case_id,
-            user_id=user_id,
-        )
+        new_session = AgentSession(id=uuid4(), case_id=case_id, user_id=user_id)
         db.add(new_session)
         await db.flush()
         return new_session.id
 
-    # 驗證既有 session 的歸屬
     session = await db.get(AgentSession, session_id)
     if not session or str(session.case_id) != str(case_id) or \
        str(session.user_id) != str(user_id):
@@ -51,14 +158,13 @@ async def persist_message(
     db: AsyncSession,
     session_id: UUID,
     role: str,
-    content,                          # str 或 list（Anthropic 格式）
+    content,
     tool_use_id: str | None = None,
     tool_name: str | None = None,
     model: str | None = None,
     input_tokens: int | None = None,
     output_tokens: int | None = None,
 ) -> None:
-    """把每一輪的訊息存進 agent_messages。"""
     msg = AgentMessage(
         id=uuid4(),
         session_id=session_id,
@@ -74,15 +180,6 @@ async def persist_message(
     await db.flush()
 
 
-def extract_user_facing_text(response) -> str:
-    """從 Anthropic response 取出給使用者看的文字。"""
-    texts = []
-    for block in response.content:
-        if block.type == "text":
-            texts.append(block.text)
-    return "\n".join(texts) if texts else "（已完成）"
-
-
 async def handle_message(
     case_id: UUID,
     user_id: UUID,
@@ -93,30 +190,18 @@ async def handle_message(
     user_agent: str | None = None,
     user=None,
 ) -> dict:
-    """
-    主入口。處理一則使用者訊息，執行 LLM 狀態機，回傳結果。
-
-    回傳格式：
-    {
-        "session_id": "uuid",
-        "reply": "AI 回覆的中文文字",
-        "actions_taken": [{"tool": "...", "result": {...}}, ...],
-        "requires_clarification": bool,
-        "clarification_options": [...]  # 若 requires_clarification=True
-    }
-    """
-    async with db.begin_nested():  # savepoint，讓外層 transaction 控制 commit
+    async with db.begin_nested():
         # 1. 取得或建立 session
         sid = await get_or_create_session(case_id, user_id, session_id, db)
 
         # 2. 載入 context（歷史訊息 + 現有規則）
         ctx = await load_context(sid, case_id, user_id, db)
 
-        # 3. 新增使用者訊息到 context 與 DB
+        # 3. 新增使用者訊息
         ctx.append_user_message(user_text)
         await persist_message(db, sid, "user", user_text)
 
-        # 4. 寫 audit_log（記錄使用者的原始輸入）
+        # 4. Audit log：使用者輸入
         await audit_log(
             db,
             case_id=case_id,
@@ -131,122 +216,143 @@ async def handle_message(
             user_agent=user_agent,
         )
 
-        # 5. 狀態機主迴圈
-        actions_taken = []
-        clarification_payload = None
+        # 5. 建立 Gemini model（每次請求帶入最新 system prompt）
+        model = GenerativeModel(
+            settings.VERTEX_AI_MODEL,
+            system_instruction=build_system_prompt(
+                today_date=ctx.today_label(),
+                case_timezone=ctx.case_timezone,
+                active_rules=ctx.active_rules,
+            ),
+        )
+        gen_config = GenerationConfig(temperature=0.0, max_output_tokens=2048)
+        gemini_tools = _get_gemini_tools()
+
+        actions_taken: list[dict] = []
+        clarification_payload: dict | None = None
         reply = "（已完成）"
 
+        # 6. 狀態機主迴圈
         for iteration in range(MAX_ITERATIONS):
-            resp = await client.messages.create(
-                model=settings.ANTHROPIC_MODEL,   # "claude-haiku-4-5"
-                max_tokens=2048,
-                temperature=0,
-                system=build_system_prompt(
-                    today_date=ctx.today_label(),
-                    case_timezone=ctx.case_timezone,
-                    active_rules=ctx.active_rules,
-                ),
-                tools=get_tools_with_cache(),
-                messages=ctx.truncated_messages(),
+            contents = _to_gemini_contents(ctx.truncated_messages())
+            resp = await model.generate_content_async(
+                contents=contents,
+                tools=gemini_tools,
+                generation_config=gen_config,
             )
 
-            # 持久化 assistant 訊息（含 token 用量）
+            candidate = resp.candidates[0]
+            response_parts = candidate.content.parts
+
+            # 把 assistant 訊息轉成儲存格式（與原 Anthropic 格式相容）
+            assistant_blocks: list[dict] = []
+            for part in response_parts:
+                if hasattr(part, "text") and part.text:
+                    assistant_blocks.append({"type": "text", "text": part.text})
+                elif hasattr(part, "function_call") and part.function_call:
+                    fc = part.function_call
+                    assistant_blocks.append({
+                        "type": "tool_use",
+                        "id": f"{fc.name}-{iteration}",
+                        "name": fc.name,
+                        "input": dict(fc.args),
+                    })
+
             await persist_message(
                 db, sid, "assistant",
-                content=[b.model_dump() for b in resp.content],
-                model=resp.model,
-                input_tokens=resp.usage.input_tokens,
-                output_tokens=resp.usage.output_tokens,
+                content=assistant_blocks,
+                model=settings.VERTEX_AI_MODEL,
+                input_tokens=getattr(resp.usage_metadata, "prompt_token_count", None),
+                output_tokens=getattr(resp.usage_metadata, "candidates_token_count", None),
             )
+            ctx.append_assistant_response(assistant_blocks)
 
-            # 更新 context
-            ctx.append_assistant_response([b.model_dump() for b in resp.content])
+            # 找出所有 function_call parts
+            fc_parts = [
+                p for p in response_parts
+                if hasattr(p, "function_call") and p.function_call
+            ]
 
-            # --- 判斷 stop_reason ---
-            if resp.stop_reason == "end_turn":
-                reply = extract_user_facing_text(resp)
+            if not fc_parts:
+                # 沒有 function call → 結束
+                reply = "\n".join(
+                    p.text for p in response_parts
+                    if hasattr(p, "text") and p.text
+                ) or "（已完成）"
                 break
 
-            if resp.stop_reason == "tool_use":
-                tool_results = []
+            # 有 function call → 逐一 dispatch
+            tool_results: list[dict] = []
+            for part in fc_parts:
+                fc = part.function_call
+                tool_name = fc.name
+                tool_input = dict(fc.args)
+                tool_id = f"{tool_name}-{iteration}"
 
-                for block in resp.content:
-                    if block.type != "tool_use":
-                        continue
+                await audit_log(
+                    db,
+                    case_id=case_id,
+                    actor_id=user_id,
+                    action="agent_tool_call",
+                    entity_type="agent_session",
+                    entity_id=sid,
+                    after_state={
+                        "tool": tool_name,
+                        "input": tool_input,
+                        "reasoning": tool_input.get("reasoning", ""),
+                    },
+                    triggered_by="agent",
+                    agent_session_id=sid,
+                )
 
-                    # 寫 audit_log：Agent 呼叫了哪個 tool
+                result = await dispatch_tool(
+                    tool_name=tool_name,
+                    tool_input=tool_input,
+                    ctx=ctx,
+                    db=db,
+                )
+
+                if tool_name == "ask_clarification":
+                    clarification_payload = result
+
+                if tool_name == "summarize_and_confirm":
                     await audit_log(
                         db,
                         case_id=case_id,
                         actor_id=user_id,
-                        action="agent_tool_call",
+                        action="agent_session_summarized",
                         entity_type="agent_session",
                         entity_id=sid,
-                        after_state={
-                            "tool": block.name,
-                            "input": block.input,
-                            "reasoning": block.input.get("reasoning", ""),
-                        },
+                        after_state={"summary": tool_input.get("summary", "")},
                         triggered_by="agent",
                         agent_session_id=sid,
                     )
 
-                    # dispatch
-                    result = await dispatch_tool(
-                        tool_name=block.name,
-                        tool_input=block.input,
-                        ctx=ctx,
-                        db=db,
-                    )
+                actions_taken.append({
+                    "tool": tool_name,
+                    "input": tool_input,
+                    "result": result,
+                })
 
-                    # 特殊處理 ask_clarification
-                    if block.name == "ask_clarification":
-                        clarification_payload = result
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "tool_name": tool_name,   # Gemini 轉換時需要此欄位
+                    "content": json.dumps(result, ensure_ascii=False),
+                })
 
-                    # 特殊處理 summarize_and_confirm 觸發稽核
-                    if block.name == "summarize_and_confirm":
-                        await audit_log(
-                            db,
-                            case_id=case_id,
-                            actor_id=user_id,
-                            action="agent_session_summarized",
-                            entity_type="agent_session",
-                            entity_id=sid,
-                            after_state={"summary": block.input.get("summary", "")},
-                            triggered_by="agent",
-                            agent_session_id=sid,
-                        )
-
-                    actions_taken.append({
-                        "tool": block.name,
-                        "input": block.input,
-                        "result": result,
-                    })
-
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": json.dumps(result, ensure_ascii=False),
-                    })
-
-                # 把 tool_results 餵回 context
-                ctx.append_tool_results(tool_results)
-                await persist_message(db, sid, "tool_result", tool_results)
-                continue  # 繼續迴圈，再呼叫一次 LLM
-
-            # 其他 stop_reason（max_tokens 等）
-            raise AgentLoopError(f"Unexpected stop_reason: {resp.stop_reason}")
+            ctx.append_tool_results(tool_results)
+            await persist_message(db, sid, "tool_result", tool_results)
 
         else:
-            # 超過 MAX_ITERATIONS
-            raise AgentLoopError("Exceeded max iterations without end_turn")
+            raise AgentLoopError("Exceeded max iterations without finishing")
 
-        # 6. 更新 session 的 last_active_at
+        # 7. 更新 session last_active_at
         session = await db.get(AgentSession, sid)
         if session:
             session.last_active_at = datetime.now(timezone.utc)
 
-    # GCal 同步在 savepoint release 後、transaction commit 前觸發
+    # GCal 同步在 savepoint release 後觸發
     for action in actions_taken:
         if action["tool"] in ("create_recurring_custody_rule", "create_one_time_event"):
             if "id" in action["result"]:
@@ -270,13 +376,11 @@ async def _trigger_gcal_sync_after_create(
     user_id: UUID,
     db: AsyncSession,
 ) -> None:
-    """建立規則或事件後，把展開的 custody_events 同步到 GCal。失敗不拋錯。"""
     import logging
     from app.services.gcal_sync_service import sync_events_batch
     from app.repositories.event_repo import EventRepository
 
     try:
-        # 若 user 未傳入，從 DB 取
         if user is None:
             from app.models.user import User as UserModel
             user = await db.get(UserModel, user_id)
@@ -288,7 +392,6 @@ async def _trigger_gcal_sync_after_create(
             if not rule_id:
                 return
             events = await EventRepository(db).list_by_rule_id(rule_id)
-
         elif action["tool"] == "create_one_time_event":
             event_id = action["result"].get("id")
             if not event_id:
@@ -296,7 +399,6 @@ async def _trigger_gcal_sync_after_create(
             from app.models.custody_event import CustodyEvent
             event = await db.get(CustodyEvent, event_id)
             events = [event] if event else []
-
         else:
             return
 

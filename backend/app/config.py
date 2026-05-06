@@ -12,8 +12,9 @@ class Settings(BaseSettings):
     APP_DATABASE_URL: str = "postgresql+asyncpg://app_user:changeme@localhost:5432/coparenting"
     APP_DB_PASSWORD: str = "changeme"
 
-    ANTHROPIC_API_KEY: str = ""
-    ANTHROPIC_MODEL: str = "claude-haiku-4-5"
+    VERTEX_AI_PROJECT: str = ""        # 空時 SDK 自動從 GCP metadata 取得
+    VERTEX_AI_LOCATION: str = "us-central1"
+    VERTEX_AI_MODEL: str = "gemini-2.5-flash"
 
     GOOGLE_OAUTH_CLIENT_ID: str = ""
     GOOGLE_OAUTH_CLIENT_SECRET: str = ""
