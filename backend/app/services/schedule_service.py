@@ -17,6 +17,13 @@ from app.utils.rrule_expander import expand_rule
 EXPAND_WINDOW_MONTHS = 6
 
 
+def _parse_time(time_str: str) -> dtime:
+    """Parse ISO time string; converts 24:00[:00] (end-of-day) to 00:00."""
+    if time_str.startswith("24:"):
+        time_str = "00:" + time_str[3:]
+    return dtime.fromisoformat(time_str)
+
+
 # ── 衝突偵測（M1.3 保留）────────────────────────────────────────────────────
 
 async def detect_conflicts(
@@ -133,8 +140,8 @@ async def create_rule(ctx: AgentContext, tool_input: dict, db: AsyncSession) -> 
         tool_input["custodian"] == "counterparty" and custodian_id == ctx.speaker_user_id
     )
 
-    start_time = dtime.fromisoformat(tool_input["start_time"])
-    end_time = dtime.fromisoformat(tool_input["end_time"])
+    start_time = _parse_time(tool_input["start_time"])
+    end_time = _parse_time(tool_input["end_time"])
     effective_from = ddate.fromisoformat(tool_input["effective_from"])
     effective_until = (
         ddate.fromisoformat(tool_input["effective_until"])
