@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import * as WebBrowser from 'expo-web-browser';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useCaseStore } from '../store/case';
 import { useAuthStore } from '../store/auth';
 import { schedulesApi } from '../api/schedules';
 import { casesApi } from '../api/cases';
+import { apiClient } from '../api/client';
+import { AUTH_REDIRECT_URI } from '../utils/constants';
 import { CustodyEvent } from '../api/types';
 import { StatCard } from '../components/ui/StatCard';
 import { EventCard } from '../components/ui/EventCard';
@@ -19,9 +22,10 @@ export const HomeScreen = () => {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { currentCase, setCurrentCase, setCases } = useCaseStore();
-  const { user } = useAuthStore();
+  const { user, login } = useAuthStore();
   const [events, setEvents] = useState<CustodyEvent[]>([]);
   const [loadError, setLoadError] = useState(false);
+  const [gcalLinking, setGcalLinking] = useState(false);
 
   useEffect(() => {
     loadCases();
@@ -58,6 +62,26 @@ export const HomeScreen = () => {
     } catch {}
   };
 
+  const handleGcalReauth = async () => {
+    setGcalLinking(true);
+    try {
+      const { data } = await apiClient.get<{ auth_url: string }>('/auth/google/login/mobile');
+      const result = await WebBrowser.openAuthSessionAsync(data.auth_url, AUTH_REDIRECT_URI);
+      if (result.type !== 'success') return;
+      const url = new URL(result.url);
+      const accessToken = url.searchParams.get('access_token');
+      const refreshToken = url.searchParams.get('refresh_token');
+      const userJson = url.searchParams.get('user');
+      if (!accessToken || !refreshToken || !userJson) throw new Error('缺少授權資訊');
+      await login(accessToken, refreshToken, JSON.parse(decodeURIComponent(userJson)));
+      Alert.alert('授權成功', 'Google 日曆已連結，之後建立的排程會自動同步。');
+    } catch {
+      Alert.alert('授權失敗', '請稍後再試');
+    } finally {
+      setGcalLinking(false);
+    }
+  };
+
   const myEvents = events.filter(e => e.custodian_id === user?.id);
   const upcomingEvents = events.slice(0, 5);
 
@@ -77,6 +101,19 @@ export const HomeScreen = () => {
           {currentCase.custody_type === 'joint' ? '共同監護' : '單獨監護'} · {formatMonthYear(new Date())}
         </Text>
       </View>
+
+      {user?.gcal_scope_granted === false && (
+        <TouchableOpacity
+          style={styles.gcalBanner}
+          onPress={handleGcalReauth}
+          disabled={gcalLinking}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.gcalBannerText}>
+            {gcalLinking ? '連結中...' : '📅 點此授權 Google 日曆同步'}
+          </Text>
+        </TouchableOpacity>
+      )}
 
       <ScrollView style={styles.body} showsVerticalScrollIndicator={false}>
         <View style={styles.statsRow}>
@@ -159,4 +196,12 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   fabIcon: { fontSize: 22, color: colors.text.inverse },
+  gcalBanner: {
+    backgroundColor: '#FFF3CD',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: '#FFEAA0',
+  },
+  gcalBannerText: { ...typography.body, color: '#856404', textAlign: 'center' },
 });
