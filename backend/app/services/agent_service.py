@@ -1,7 +1,10 @@
 # app/services/agent_service.py
 import json
+import logging
 from uuid import UUID, uuid4
 from datetime import datetime, timezone
+
+_log = logging.getLogger(__name__)
 
 from google import genai
 from google.genai import types as gtypes
@@ -198,7 +201,7 @@ async def handle_message(
             system_instruction=system_prompt,
             tools=genai_tools,
             temperature=0.0,
-            max_output_tokens=2048,
+            max_output_tokens=8192,
         )
 
         actions_taken: list[dict] = []
@@ -213,10 +216,23 @@ async def handle_message(
                 config=gen_config,
             )
 
+            if not resp.candidates:
+                _log.warning("Gemini returned no candidates")
+                reply = "（模型未回傳結果，請稍後再試）"
+                break
+
             candidate = resp.candidates[0]
+            finish_reason = getattr(candidate, 'finish_reason', None)
+
             if not candidate.content or not candidate.content.parts:
+                safety = getattr(candidate, 'safety_ratings', None)
+                _log.warning(
+                    "Gemini empty content: finish_reason=%s safety=%s",
+                    finish_reason, safety
+                )
                 reply = "（模型未回傳內容，請重新嘗試）"
                 break
+
             response_parts = candidate.content.parts
 
             assistant_blocks: list[dict] = []
