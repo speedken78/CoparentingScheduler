@@ -214,6 +214,9 @@ async def handle_message(
             )
 
             candidate = resp.candidates[0]
+            if not candidate.content or not candidate.content.parts:
+                reply = "（模型未回傳內容，請重新嘗試）"
+                break
             response_parts = candidate.content.parts
 
             assistant_blocks: list[dict] = []
