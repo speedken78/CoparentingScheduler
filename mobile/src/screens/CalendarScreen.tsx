@@ -14,6 +14,9 @@ import { typography } from '../theme/typography';
 import { format, addMonths, subMonths } from 'date-fns';
 import { zhTW } from 'date-fns/locale';
 
+const toTaipeiDate = (utcIso: string): string =>
+  new Date(utcIso).toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' });
+
 export const CalendarScreen = () => {
   const insets = useSafeAreaInsets();
   const { currentCase } = useCaseStore();
@@ -46,7 +49,7 @@ export const CalendarScreen = () => {
   const buildMarked = (items: CustodyEvent[]) => {
     const marked: Record<string, any> = {};
     items.forEach(event => {
-      const dateKey = event.starts_at.slice(0, 10);
+      const dateKey = toTaipeiDate(event.starts_at);
       const isMine = event.custodian_id === user?.id;
       const existing = marked[dateKey];
       const hasOtherType = existing && existing._type !== (isMine ? 'me' : 'other');
@@ -81,7 +84,7 @@ export const CalendarScreen = () => {
     setSelectedDate(day.dateString);
   };
 
-  const eventsOnDate = events.filter(e => e.starts_at.startsWith(selectedDate));
+  const eventsOnDate = events.filter(e => toTaipeiDate(e.starts_at) === selectedDate);
 
   const handleDeleteEvent = async (eventId: string) => {
     if (!currentCase) return;
