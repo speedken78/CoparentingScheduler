@@ -22,11 +22,18 @@ export const reportsApi = {
   },
 
   async list(caseId: string): Promise<Report[]> {
-    const { data } = await apiClient.get<Report[]>(`/cases/${caseId}/reports/`);
-    return data;
+    const { data } = await apiClient.get<{ items: Report[] }>(`/cases/${caseId}/reports/`);
+    return data.items ?? [];
   },
 
-  async getDownloadUrl(caseId: string, reportId: string): Promise<string> {
-    return `${process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:8000/api/v1'}/cases/${caseId}/reports/${reportId}/download`;
+  async downloadPdfBase64(caseId: string, reportId: string): Promise<string> {
+    const { data } = await apiClient.get<ArrayBuffer>(
+      `/cases/${caseId}/reports/${reportId}/download`,
+      { responseType: 'arraybuffer' },
+    );
+    const bytes = new Uint8Array(data);
+    let binary = '';
+    bytes.forEach(b => { binary += String.fromCharCode(b); });
+    return 'data:application/pdf;base64,' + btoa(binary);
   },
 };

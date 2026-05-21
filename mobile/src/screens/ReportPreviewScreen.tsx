@@ -24,19 +24,16 @@ export const ReportPreviewScreen = () => {
     try {
       const list = await reportsApi.list(caseId);
       const found = list.find(r => r.id === reportId);
-      if (found) {
-        setReport(found);
-        const url = await reportsApi.getDownloadUrl(caseId, reportId);
-        setDownloadUrl(url);
-      }
+      if (found) setReport(found);
+      const dataUri = await reportsApi.downloadPdfBase64(caseId, reportId);
+      setDownloadUrl(dataUri);
     } catch (e: any) {
       Alert.alert('載入失敗', e.message);
     }
   };
 
   const handleShare = async () => {
-    if (!downloadUrl) return;
-    await Share.share({ url: downloadUrl, message: '共親職監護報告 PDF' });
+    await Share.share({ message: '共親職監護報告 PDF（稽核雜湊：' + (report?.pdf_sha256?.slice(0, 16) ?? '') + '…）' });
   };
 
   return (
