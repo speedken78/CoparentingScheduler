@@ -205,6 +205,32 @@ TOOLS: list[dict] = [
         }
     },
     {
+        "name": "delete_custody_event",
+        "description": (
+            "刪除一筆特定的已排程事件（非週期規則）。"
+            "從系統注入的「未來 60 天事件」清單中取得 event_id，"
+            "不可自行推測 ID。刪除前需向使用者確認事件日期與時間。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "event_id": {
+                    "type": "string",
+                    "description": "要刪除的事件 UUID（來自系統注入的事件清單）"
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "刪除原因，客觀陳述，禁止情緒性字眼"
+                },
+                "reasoning": {
+                    "type": "string",
+                    "description": "你從使用者輸入的哪些線索得出此刪除決定，供稽核追溯"
+                }
+            },
+            "required": ["event_id", "reason", "reasoning"]
+        }
+    },
+    {
         "name": "summarize_and_confirm",
         "description": (
             "完成一組操作後，以中文簡短摘要剛才做了什麼，並提供一句「如需產生紀錄 PDF，"

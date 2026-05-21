@@ -1,7 +1,7 @@
 # app/agents/context.py
 from dataclasses import dataclass, field
 from uuid import UUID
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import json
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +9,7 @@ from sqlalchemy import select, and_
 
 from app.models.agent_session import AgentSession, AgentMessage
 from app.models.custody_rule import CustodyRule
+from app.models.custody_event import CustodyEvent
 from app.models.case import CaseMembership
 
 
@@ -20,6 +21,7 @@ class AgentContext:
     case_timezone: str
     active_rules: list[dict]       # 現有規則摘要（給 system prompt 用）
     messages: list[dict]           # Anthropic API 格式的對話歷史
+    upcoming_events: list[dict] = field(default_factory=list)  # 未來 60 天事件摘要
     max_history_turns: int = 20    # 最多保留幾輪（防 context 爆掉）
 
     def today_label(self) -> str:
@@ -121,12 +123,45 @@ async def load_context(
             "effective_from": str(rule.effective_from),
         })
 
+    # 4. 取未來 60 天事件（供 AI 刪除時參考）
+    now_utc = datetime.now(timezone.utc)
+    end_utc = now_utc + timedelta(days=60)
+    events_result = await db.execute(
+        select(CustodyEvent)
+        .where(
+            and_(
+                CustodyEvent.case_id == case_id,
+                CustodyEvent.deleted_at.is_(None),
+                CustodyEvent.starts_at >= now_utc,
+                CustodyEvent.starts_at < end_utc,
+            )
+        )
+        .order_by(CustodyEvent.starts_at.asc())
+        .limit(30)
+    )
+    upcoming_events_db = events_result.scalars().all()
+
+    tz = ZoneInfo(case_timezone)
+    upcoming_events: list[dict] = []
+    for ev in upcoming_events_db:
+        is_speaker = str(ev.custodian_id) == str(speaker_user_id)
+        starts_local = ev.starts_at.astimezone(tz)
+        ends_local = ev.ends_at.astimezone(tz)
+        upcoming_events.append({
+            "id": str(ev.id),
+            "is_speaker": is_speaker,
+            "starts_at": starts_local.strftime("%Y-%m-%d %H:%M"),
+            "ends_at": ends_local.strftime("%Y-%m-%d %H:%M"),
+            "notes": ev.notes or "",
+        })
+
     return AgentContext(
         session_id=session_id,
         case_id=case_id,
         speaker_user_id=speaker_user_id,
         case_timezone=case_timezone,
         active_rules=active_rules,
+        upcoming_events=upcoming_events,
         messages=messages,
     )
 

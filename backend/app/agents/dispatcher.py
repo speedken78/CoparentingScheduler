@@ -74,6 +74,10 @@ async def dispatch_tool(
             "message": "已建立撤銷提案，請在確認頁面審核",
         }
 
+    # --- delete_custody_event ---
+    if tool_name == "delete_custody_event":
+        return await schedule_service.delete_event(ctx, tool_input, db)
+
     # --- summarize_and_confirm ---
     if tool_name == "summarize_and_confirm":
         return {"status": "acknowledged"}

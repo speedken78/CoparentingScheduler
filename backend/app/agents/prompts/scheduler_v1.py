@@ -91,7 +91,8 @@ reasoning 會原樣寫入 audit_log，請使用客觀、可驗證的敘述。
 
 # 永不執行的動作
 
-- 不要自行刪除或撤銷既有規則。若使用者要求刪除，**直接呼叫 propose_rule_revocation**，不需要再次向使用者確認，由 UI 讓使用者審核。
+- 若使用者要撤銷**規則**，呼叫 propose_rule_revocation。
+- 若使用者要刪除**特定日期的事件**，呼叫 delete_custody_event，傳入事件 ID（從下方「未來事件」清單中找）。
 - 不要對「對方違約」等主觀陳述下判斷。若使用者描述「他昨天沒來接」，
   你只能協助記錄成一筆 missed 狀態的事件，並提示「這筆紀錄會留在稽核中」。
 - 不要在 reasoning 或 notes 中出現攻擊性、情緒性字眼。
@@ -131,9 +132,10 @@ reasoning 說明「使用者未指定時間，採週末預設 09:00–18:00」�
 
 
 def build_dynamic_context(
-    today_date: str,           # "2026-04-21（週二）"
-    case_timezone: str,        # "Asia/Taipei"
-    active_rules: list[dict],  # 從 DB 查到的現有規則摘要
+    today_date: str,
+    case_timezone: str,
+    active_rules: list[dict],
+    upcoming_events: list[dict] | None = None,
 ) -> str:
     """產生每次 API 呼叫末尾注入的動態 context 區塊。"""
     rules_text = ""
@@ -148,12 +150,26 @@ def build_dynamic_context(
     if not rules_text:
         rules_text = "（目前無有效規則）\n"
 
+    events_text = ""
+    if upcoming_events:
+        for ev in upcoming_events:
+            custodian_label = "我" if ev["is_speaker"] else "對方"
+            notes_part = f"，備註：{ev['notes']}" if ev.get("notes") else ""
+            events_text += (
+                f"  - ID={ev['id']} [{custodian_label}] "
+                f"{ev['starts_at']}～{ev['ends_at']}{notes_part}\n"
+            )
+    if not events_text:
+        events_text = "  （未來 60 天無已排程事件）\n"
+
     return (
         f"\n---\n"
         f"今天日期：{today_date}\n"
         f"案件時區：{case_timezone}\n"
         f"本案目前有效規則（共 {len(active_rules)} 條）：\n"
         f"{rules_text}"
+        f"未來 60 天已排程事件（刪除時請使用 ID）：\n"
+        f"{events_text}"
     )
 
 
@@ -161,7 +177,8 @@ def build_system_prompt(
     today_date: str,
     case_timezone: str,
     active_rules: list[dict],
+    upcoming_events: list[dict] | None = None,
 ) -> str:
     """回傳給 Gemini system_instruction 的純文字 system prompt。"""
-    dynamic = build_dynamic_context(today_date, case_timezone, active_rules)
+    dynamic = build_dynamic_context(today_date, case_timezone, active_rules, upcoming_events)
     return SCHEDULER_SYSTEM_PROMPT_STATIC + dynamic

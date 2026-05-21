@@ -195,6 +195,7 @@ async def handle_message(
             today_date=ctx.today_label(),
             case_timezone=ctx.case_timezone,
             active_rules=ctx.active_rules,
+            upcoming_events=ctx.upcoming_events,
         )
         genai_tools = _get_genai_tools()
         gen_config = gtypes.GenerateContentConfig(

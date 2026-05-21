@@ -307,6 +307,39 @@ async def create_event(ctx: AgentContext, tool_input: dict, db: AsyncSession) ->
     }
 
 
+async def delete_event(ctx: AgentContext, tool_input: dict, db: AsyncSession) -> dict:
+    from uuid import UUID as _UUID
+    event_repo = EventRepository(db)
+
+    try:
+        event_id = _UUID(tool_input["event_id"])
+    except (ValueError, KeyError):
+        return {"status": "error", "message": "無效的 event_id"}
+
+    event = await event_repo.soft_delete(event_id, ctx.case_id)
+    if event is None:
+        return {"status": "not_found", "message": "找不到該事件，或已刪除"}
+
+    await audit_log(
+        db,
+        case_id=ctx.case_id,
+        actor_id=ctx.speaker_user_id,
+        action="delete_custody_event",
+        entity_type="custody_event",
+        entity_id=event_id,
+        before_state={"starts_at": event.starts_at.isoformat(), "ends_at": event.ends_at.isoformat()},
+        after_state={"deleted": True, "reason": tool_input.get("reason", "")},
+        triggered_by="agent",
+        agent_session_id=ctx.session_id,
+    )
+
+    return {
+        "status": "deleted",
+        "event_id": str(event_id),
+        "summary": f"已刪除事件：{event.starts_at.strftime('%Y-%m-%d %H:%M')}",
+    }
+
+
 async def propose_revocation(
     ctx: AgentContext, tool_input: dict, db: AsyncSession
 ) -> dict:
