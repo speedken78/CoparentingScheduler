@@ -68,10 +68,24 @@ async def dispatch_tool(
     # --- propose_rule_revocation ---
     if tool_name == "propose_rule_revocation":
         proposal = await schedule_service.propose_revocation(ctx, tool_input, db)
+        proposal_id = proposal["id"]
+        rule_id = proposal.get("rule_id")
+        if not rule_id:
+            return {
+                "status": "not_found",
+                "message": "找不到符合描述的規則，請確認規則是否存在",
+            }
+        # 沒有審核 UI，直接自動確認撤銷
+        result = await schedule_service.confirm_revocation(
+            proposal_id=proposal_id,
+            user_id=ctx.speaker_user_id,
+            db=db,
+        )
         return {
-            "status": "awaiting_user_confirmation",
-            "proposal_id": str(proposal["id"]),
-            "message": "已建立撤銷提案，請在確認頁面審核",
+            "status": "revoked",
+            "rule_id": rule_id,
+            "deleted_events_count": result.get("deleted_events_count", 0),
+            "message": f"已撤銷規則並刪除 {result.get('deleted_events_count', 0)} 個排程事件",
         }
 
     # --- delete_custody_event ---
