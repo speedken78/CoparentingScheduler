@@ -7,9 +7,14 @@
 -- 本檔重放 alembic 009_app_role.py，外加 011/012/013 針對個別資料表的 GRANT。
 -- 全部冪等，可重複執行。
 --
--- 執行（Cloud Shell，以 postgres 超級使用者連新 instance）：
+-- 執行（Cloud Shell，以 postgres 連新 instance）：
 --   gcloud sql connect coparenting-db --user=postgres --database=coparenting
 --   \i repair_roles_after_migration.sql
+--
+-- 沒有 psql 時：本檔（去掉 \set 那行）可用 asyncpg 的 Connection.execute()
+-- 一次送出——simple query protocol 支援多敘述與 DO $$ 區塊。
+-- 注意 asyncpg.connect() 不能直接吃這種 DSN：netloc 的 localhost 會蓋掉
+-- ?host= 查詢參數而退回 TCP 127.0.0.1:5432，必須把 host 拆成 kwarg 傳入。
 --
 -- 注意：本檔不設定 app_user 密碼。密碼請用 fix_db_auth.sh 處理，
 -- 以確保 Cloud SQL 與 Secret Manager 兩邊一致。
@@ -36,7 +41,20 @@ END
 $$;
 
 -- 角色若已存在但屬性被移轉工具改掉，強制校正回來。
-ALTER ROLE app_role WITH NOLOGIN NOINHERIT BYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
+--
+-- 實測（2026-07-27）：移轉後 app_role 變成 rolbypassrls=f、rolcanlogin=t、
+-- rolinherit=t，全部偏離原設計，必須改回來。
+--
+-- 必須拆成多道敘述，不能合寫成一行 ALTER ROLE ... NOSUPERUSER ...：
+-- Cloud SQL 的 postgres 是 cloudsqlsuperuser 而非真 superuser，只要敘述裡
+-- 出現 SUPERUSER/NOSUPERUSER 就會整道被擋：
+--   InsufficientPrivilegeError: permission denied to alter role
+--   DETAIL: Only roles with the SUPERUSER attribute may change the SUPERUSER attribute.
+-- 拆開後 BYPASSRLS 本身是設得起來的。NOSUPERUSER 則省略——Cloud SQL 上
+-- 本來就無法建立 superuser，不需要校正。
+ALTER ROLE app_role NOLOGIN;
+ALTER ROLE app_role NOINHERIT;
+ALTER ROLE app_role BYPASSRLS;
 
 -- app_user：API runtime 實際登入用的帳號，本身不具 BYPASSRLS。
 DO $$
@@ -53,7 +71,8 @@ BEGIN
 END
 $$;
 
-ALTER ROLE app_user WITH LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE;
+ALTER ROLE app_user LOGIN;
+ALTER ROLE app_user NOINHERIT;
 
 -- 成員關係：沒有這行，SET ROLE app_role 會失敗
 -- （permission denied to set role "app_role"）。
