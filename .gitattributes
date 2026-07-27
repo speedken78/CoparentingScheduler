@@ -1,0 +1,5 @@
+# Shell 腳本一律以 LF 存放並簽出。
+# Windows 端 core.autocrlf 會把它們轉成 CRLF，在 Cloud Shell / Linux 執行時
+# bash 會把行尾的 \r 當成指令的一部分，噴 $'\r': command not found。
+*.sh text eol=lf
+*.sql text eol=lf

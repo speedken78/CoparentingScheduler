@@ -23,8 +23,9 @@ class Settings(BaseSettings):
     LINE_CHANNEL_ACCESS_TOKEN: str = ""
     LINE_CHANNEL_SECRET: str = ""
 
-    GCS_BUCKET_AUDIT: str = "coparenting-audit-anchors"
-    GCS_BUCKET_REPORTS: str = "coparenting-reports"
+    # -989 後綴：移轉新專案時 bucket 必須改名（GCS bucket 名稱全域唯一，舊名仍屬舊專案）
+    GCS_BUCKET_AUDIT: str = "coparenting-audit-anchors-989"
+    GCS_BUCKET_REPORTS: str = "coparenting-reports-989"
 
     JWT_SECRET: str = "change-me-in-production"
     JWT_ALGORITHM: str = "HS256"
